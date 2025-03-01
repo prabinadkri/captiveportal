@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to the Network</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            background-color: #f5f5f5;
+        }
+        
+        header {
+            background-color: #3498db;
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+        }
+        
+        .logo svg {
+            margin-right: 10px;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+        }
+        
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 10px;
+        }
+        
+        .avatar svg {
+            width: 24px;
+            height: 24px;
+        }
+        
+        .logout-btn {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 15px;
+            transition: background-color 0.3s;
+        }
+        
+        .logout-btn:hover {
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        main {
+            flex: 1;
+            padding: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        .welcome-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .network-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .info-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .info-card h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 14px;
+            color: white;
+            background-color: #27ae60;
+            margin-bottom: 15px;
+        }
+        
+        .role-admin {
+            background-color: #e74c3c;
+        }
+        
+        .role-user {
+            background-color: #3498db;
+        }
+        
+        .role-guest {
+            background-color: #f39c12;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            background-color: #333;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <svg width="30" height="30" viewBox="0 0 24 24">
+                <path fill="white" d="M12,21L15.6,16.2C14.6,15.45 13.35,15 12,15C10.65,15 9.4,15.45 8.4,16.2L12,21M12,3C7.95,3 4.21,4.34 1.2,6.6L3,9C5.5,7.12 8.62,6 12,6C15.38,6 18.5,7.12 21,9L22.8,6.6C19.79,4.34 16.05,3 12,3M12,9C9.3,9 6.81,9.89 4.8,11.4L6.6,13.8C8.1,12.67 9.97,12 12,12C14.03,12 15.9,12.67 17.4,13.8L19.2,11.4C17.19,9.89 14.7,9 12,9Z"/>
+            </svg>
+            <h1>Network Portal</h1>
+        </div>
+        <div class="user-info">
+            <div class="avatar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+            </div>
+            <div>
+                <div id="username">Username</div>
+                <div id="role" style="font-size: 14px; opacity: 0.8;">Role</div>
+            </div>
+            <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+    </header>
+    
+    <main>
+        <div class="welcome-card">
+            <h2>Welcome to the Network</h2>
+            <p>You have successfully authenticated and now have access to network resources based on your role privileges.</p>
+            <div id="roleBadge" class="status-badge">Connected</div>
+        </div>
+        
+        <div class="network-info">
+            <div class="info-card">
+                <h3>Network Status</h3>
+                <p>Your device is now connected to the network .</p>
+                <p><strong>IP Address:</strong> <span id="ipAddress">Loading...</span></p>
+                <p><strong>Access Level:</strong> <span id="accessLevel">Loading...</span></p>
+            </div>
+            
+            <div class="info-card">
+                <h3>Restricted Resources</h3>
+                <div id="resourceList">
+                    <p>Loading Restricted resources...</p>
+                </div>
+            </div>
+            
+            <div class="info-card">
+                <h3>Session Information</h3>
+                <p><strong>Login Time:</strong> <span id="loginTime">Loading...</span></p>
+                <p><strong>Session Expires:</strong> <span id="sessionExpires">Loading...</span></p>
+            </div>
+        </div>
+        <div id="adminSection" class="admin-section" style="display: none;">
+            <h2>Admin Panel</h2>
+            <div>
+                <h3>Add User</h3>
+                <form id="addUserForm">
+                    <label for="newUsername">Username:</label>
+                    <input type="text" id="newUsername" required>
+                    <label for="newPassword">Password:</label>
+                    <input type="password" id="newPassword" required>
+                    <label for="newRole">Role:</label>
+                    <select id="newRole" required></select>
+                    <button type="submit">Add User</button>
+                </form>
+            </div>
+            <div>
+                <h3>Add Role</h3>
+                <form id="addRoleForm">
+                    <label for="roleName">Role Name:</label>
+                    <input type="text" id="roleName" required>
+                    <button type="submit">Add Role</button>
+                </form>
+            </div>
+            <div>
+                <h3>Add Resource</h3>
+                <form id="addResourceForm">
+                    <label for="resourceName">Resource Name:</label>
+                    <input type="text" id="resourceName" required>
+                    <label for="resourceIP">IP Address:</label>
+                    <input type="text" id="resourceIP" required>
+                    <button type="submit">Add Resource</button>
+                </form>
+            </div>
+            <div>
+                <h3>Restrict Resource to Role</h3>
+                <form id="assignResourceForm">
+                    <label for="assignRole">Role:</label>
+                    <select id="assignRole" required></select>
+                    <label for="assignResource">Resource:</label>
+                    <select id="assignResource" required></select>
+                    <button type="submit">Restrict</button>
+                </form>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        &copy; 2025 Network Portal | All rights reserved
+    </footer>
+
+    <script>
+        window.addEventListener('DOMContentLoaded', async function () {
+    try {
+        const response = await fetch('/api/check');
+        
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Update user info
+            document.getElementById('username').textContent = data.username;
+            document.getElementById('role').textContent = data.role;
+            document.getElementById('ipAddress').textContent = data.ip;
+            
+            // Set role badge color
+            const roleBadge = document.getElementById('roleBadge');
+            roleBadge.textContent = data.role.charAt(0).toUpperCase() + data.role.slice(1);
+            roleBadge.classList.add('role-' + data.role);
+            
+            // Set access level
+            document.getElementById('accessLevel').textContent = 
+                data.role === 'admin' ? 'Full Access' : 
+                data.role === 'user' ? 'Standard Access' : 'Limited Access';
+            
+            // Set login time
+            const loginTime = new Date(data.loginTime);
+            document.getElementById('loginTime').textContent = loginTime.toLocaleString();
+            
+            // Set session expiration
+            const expires = new Date(data.expiration);
+            document.getElementById('sessionExpires').textContent = expires.toLocaleString();
+            
+            // Set available resources
+            const resourceList = document.getElementById('resourceList');
+            resourceList.innerHTML = '';
+            
+            if (data.resources && data.resources.length > 0) {
+                const resourceItems = data.resources
+                    .map(resource => `<li>${resource.name} (${resource.ip_address})</li>`)
+                    .join('');
+                resourceList.innerHTML = `<ul>${resourceItems}</ul>`;
+            } else {
+                resourceList.innerHTML = '<p>No resources available for your role.</p>';
+            }
+            if (data.role === 'admin') {
+    console.log("is admin")
+    document.getElementById('adminSection').style.display = 'block';
+    loadAdminData();
+}
+        } else {
+            // If not authenticated, redirect to login
+            window.location.href = '/';
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+    
+});
+
+
+// Load roles and resources for admin forms
+async function loadAdminData() {
+    try {
+        // Fetch roles
+        const rolesResponse = await fetch('/api/roles');
+        const roles = await rolesResponse.json();
+
+        // Fetch resources
+        const resourcesResponse = await fetch('/api/resources');
+        const resources = await resourcesResponse.json();
+
+        // Populate role dropdowns
+        const roleDropdowns = document.querySelectorAll('#newRole, #assignRole');
+        roleDropdowns.forEach((dropdown) => {
+            dropdown.innerHTML = roles.map(role => `<option value="${role.name}">${role.name}</option>`).join('');
+        });
+
+        // Populate resource dropdown
+        document.getElementById('assignResource').innerHTML = resources
+            .map(resource => `<option value="${resource.name}">${resource.name}</option>`)
+            .join('');
+    } catch (error) {
+        console.error('Error loading admin data:', error);
+    }
+}
+
+// Handle Add User form submission
+document.getElementById('addUserForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const username = document.getElementById('newUsername').value;
+    const password = document.getElementById('newPassword').value;
+    const role = document.getElementById('newRole').value;
+
+    try {
+        const response = await fetch('/api/addUser', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, role }),
+        });
+
+        if (response.ok) {
+            alert('User added successfully');
+        } else {
+            alert('Failed to add user');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+});
+
+// Handle Add Role form submission
+document.getElementById('addRoleForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const roleName = document.getElementById('roleName').value;
+
+    try {
+        const response = await fetch('/api/addRole', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: roleName }),
+        });
+
+        if (response.ok) {
+            alert('Role added successfully');
+            loadAdminData(); // Refresh roles dropdown
+        } else {
+            alert('Failed to add role');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+});
+
+// Handle Add Resource form submission
+document.getElementById('addResourceForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const resourceName = document.getElementById('resourceName').value;
+    const resourceIP = document.getElementById('resourceIP').value;
+
+    try {
+        const response = await fetch('/api/addResource', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: resourceName, ip_address: resourceIP }),
+        });
+
+        if (response.ok) {
+            alert('Resource added successfully');
+            loadAdminData(); // Refresh resources dropdown
+        } else {
+            alert('Failed to add resource');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+});
+
+// Handle Assign Resource form submission
+document.getElementById('assignResourceForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const role = document.getElementById('assignRole').value;
+    const resource = document.getElementById('assignResource').value;
+
+    try {
+        const response = await fetch('/api/assignResource', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: role, resource: resource }),
+        });
+
+        if (response.ok) {
+            alert('Resource assigned successfully');
+        } else {
+            alert('Failed to assign resource');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+});
+// Handle logout
+document.getElementById('logoutBtn').addEventListener('click', async function () {
+    try {
+        const response = await fetch('/api/logout', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/';
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+});
+    </script>
+</body>
+</html>
