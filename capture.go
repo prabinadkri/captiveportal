@@ -8,7 +8,7 @@ import (
     "net/http"
     "os/exec"
     "time"
-
+    "io"
     "github.com/google/gopacket"
     "github.com/google/gopacket/layers"
     "github.com/google/gopacket/pcap"
@@ -24,7 +24,14 @@ var (
     internalNetwork = "10.0.2.0/24"     // Change this to match your network
     internalIPNet   *net.IPNet
     serverIP        net.IP
+    captivePortalIP = "10.0.2.4"        // Change to your captive portal server IP
+    captivePortalPort = "8080"          // Change to your captive portal port
 )
+type Resource struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	IPAddress string `json:"ip_address"`
+}
 
 func init() {
     // Parse the internal network range
@@ -77,11 +84,14 @@ func main() {
     // Start a goroutine to periodically fetch active sessions and restricted resources
     go fetchActiveSessions()
 
-    // Set a BPF filter to capture only HTTP traffic (port 80)
-    err = handle.SetBPFFilter("tcp and port 80")
+    
+    err = handle.SetBPFFilter("tcp")
     if err != nil {
         log.Fatal(err)
     }
+
+    // Initialize iptables by flushing existing rules and setting up initial chains
+    initializeIptables()
 
     // Start processing packets
     packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
@@ -90,95 +100,70 @@ func main() {
     }
 }
 
+// initializeIptables sets up the initial iptables configuration
+func initializeIptables() {
+    // Flush existing rules
+    exec.Command("iptables", "-F").Run()
+    exec.Command("iptables", "-t", "nat", "-F").Run()
+    
+    // Set default policies
+    exec.Command("iptables", "-P", "INPUT", "ACCEPT").Run()
+    exec.Command("iptables", "-P", "FORWARD", "ACCEPT").Run()
+    exec.Command("iptables", "-P", "OUTPUT", "ACCEPT").Run()
+    
+    log.Println("Initialized iptables rules")
+}
+
 // fetchActiveSessions periodically fetches active sessions and restricted resources
 func fetchActiveSessions() {
     for {
-        // Fetch active sessions
-        resp, err := http.Get("http://localhost:8080/api/activeSessions")
+        // Fetch all restricted resources for active sessions
+        resp, err := http.Get("http://localhost:8080/api/allRestrictedResources")
         if err != nil {
-            log.Println("Error fetching active sessions:", err)
+            log.Println("Error fetching all restricted resources:", err)
             time.Sleep(5 * time.Second)
             continue
         }
         defer resp.Body.Close()
 
-        var sessions map[string]bool
-        if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
-            log.Println("Error decoding active sessions:", err)
+        // Read the response body
+        body, err := io.ReadAll(resp.Body)
+        if err != nil {
+            log.Println("Error reading response body:", err)
             time.Sleep(5 * time.Second)
             continue
         }
 
-        // Update iptables rules based on active sessions
-        for clientIP, isActive := range sessions {
-            if isActive {
-                // Remove redirect rules for authenticated clients
-                if err := removeRedirectRule(clientIP); err != nil {
-                    log.Println("Error removing redirect rules:", err)
-                }
+        
+        log.Println("Response:", string(body))
 
-                // Fetch restricted resources for the client
-                resp, err := http.Get("http://localhost:8080/api/check")
-                if err != nil {
-                    log.Println("Error fetching restricted resources:", err)
-                    continue
-                }
-                defer resp.Body.Close()
+        // Decode the JSON response
+        var allRestrictedResources map[string][]Resource
+        if err := json.Unmarshal(body, &allRestrictedResources); err != nil {
+            log.Println("Error decoding all restricted resources:", err)
+            time.Sleep(5 * time.Second)
+            continue
+        }
 
-                var data map[string]interface{}
-                if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-                    log.Println("Error decoding restricted resources:", err)
-                    continue
-                }
+        // Update iptables rules based on active sessions and restricted resources
+        for clientIP, resources := range allRestrictedResources {
+            // Allow Internet access for authenticated clients
+            if err := allowInternetAccess(clientIP); err != nil {
+                log.Println("Error allowing internet access:", err)
+            }
 
-                // Extract restricted resources from the response
-                resources := data["resources"].([]interface{})
-                var restrictedResources []string
-                for _, resource := range resources {
-                    resourceMap := resource.(map[string]interface{})
-                    restrictedResources = append(restrictedResources, resourceMap["ip_address"].(string))
-                }
+            
+            var restrictedResourceIPs []string
+            for _, resource := range resources {
+                restrictedResourceIPs = append(restrictedResourceIPs, resource.IPAddress)
+            }
 
-                // Remove restricted resource rules for the client
-                if err := removeRestrictedResourceRules(clientIP, restrictedResources); err != nil {
-                    log.Println("Error removing restricted resource rules:", err)
-                }
-            } else {
-                // Add redirect rules for unauthenticated clients
-                if err := addRedirectRule(clientIP); err != nil {
-                    log.Println("Error adding redirect rules:", err)
-                }
-
-                // Fetch restricted resources for the client
-                resp, err := http.Get("http://localhost:8080/api/check")
-                if err != nil {
-                    log.Println("Error fetching restricted resources:", err)
-                    continue
-                }
-                defer resp.Body.Close()
-
-                var data map[string]interface{}
-                if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-                    log.Println("Error decoding restricted resources:", err)
-                    continue
-                }
-
-                // Extract restricted resources from the response
-                resources := data["resources"].([]interface{})
-                var restrictedResources []string
-                for _, resource := range resources {
-                    resourceMap := resource.(map[string]interface{})
-                    restrictedResources = append(restrictedResources, resourceMap["ip_address"].(string))
-                }
-
-                // Add restricted resource rules for the client
-                if err := addRestrictedResourceRules(clientIP, restrictedResources); err != nil {
-                    log.Println("Error adding restricted resource rules:", err)
-                }
+            // Add restricted resource rules for the client
+            if err := blockRestrictedResources(clientIP, restrictedResourceIPs); err != nil {
+                log.Println("Error blocking restricted resources:", err)
             }
         }
 
-        activeSessions = sessions
         time.Sleep(5 * time.Second)
     }
 }
@@ -203,14 +188,14 @@ func processPacket(packet gopacket.Packet) {
 
         // Check if the client is authenticated
         if !activeSessions[clientIP] {
-            // Add redirect rules for unauthenticated clients
-            if err := addRedirectRule(clientIP); err != nil {
-                log.Println("Error adding redirect rules:", err)
+            // Block Internet access for unauthenticated clients
+            if err := blockInternetAccess(clientIP); err != nil {
+                log.Println("Error blocking internet access:", err)
             }
         } else {
-            // Remove redirect rules for authenticated clients
-            if err := removeRedirectRule(clientIP); err != nil {
-                log.Println("Error removing redirect rules:", err)
+            // Allow Internet access for authenticated clients
+            if err := allowInternetAccess(clientIP); err != nil {
+                log.Println("Error allowing internet access:", err)
             }
         }
     }
@@ -221,113 +206,209 @@ func isInternalIP(ip net.IP) bool {
     return internalIPNet.Contains(ip)
 }
 
-// addRedirectRule adds an iptables rule to redirect traffic to the captive portal
-func addRedirectRule(clientIP string) error {
-    // Check if HTTP rule already exists
-    exists, err := ruleExists(clientIP, "80")
+// blockInternetAccess blocks all internet access for a client except captive portal access
+func blockInternetAccess(clientIP string) error {
+    // Check if the drop rule already exists
+    exists, err := dropRuleExists(clientIP)
     if err != nil {
         return err
     }
+    
     if !exists {
-        cmd := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "80", "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
+        // 1. Add redirection rules for HTTP and HTTPS to captive portal
+        // HTTP redirection
+        cmd := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "80", "-j", "DNAT", 
+                           "--to-destination", captivePortalIP+":"+captivePortalPort)
         log.Println("Executing:", cmd.String())
         if err := cmd.Run(); err != nil {
             return err
         }
-    }
 
-    // Check if HTTPS rule already exists
-    exists, err = ruleExists(clientIP, "443")
-    if err != nil {
-        return err
-    }
-    if !exists {
-        cmd := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "443", "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
+        // HTTPS redirection
+        cmd = exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "443", "-j", "DNAT", 
+                          "--to-destination", captivePortalIP+":"+captivePortalPort)
         log.Println("Executing:", cmd.String())
         if err := cmd.Run(); err != nil {
             return err
         }
-    }
 
-    log.Printf("Added redirect rules for client: %s\n", clientIP)
+        // 2. Allow DNS queries (port 53) for domain resolution
+        cmd = exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-p", "udp", "--dport", "53", "-j", "ACCEPT")
+        log.Println("Executing:", cmd.String())
+        if err := cmd.Run(); err != nil {
+            return err
+        }
+        
+        cmd = exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-p", "tcp", "--dport", "53", "-j", "ACCEPT")
+        log.Println("Executing:", cmd.String())
+        if err := cmd.Run(); err != nil {
+            return err
+        }
+
+        // 3. Allow DHCP (for IP renewal)
+        cmd = exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-p", "udp", "--dport", "67:68", "-j", "ACCEPT")
+        log.Println("Executing:", cmd.String())
+        if err := cmd.Run(); err != nil {
+            return err
+        }
+
+        // 4. Allow access to captive portal
+        cmd = exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-d", captivePortalIP, "--dport", "8080","-j", "ACCEPT")
+        log.Println("Executing:", cmd.String())
+        if err := cmd.Run(); err != nil {
+            return err
+        }
+
+        
+        // 5. Drop all other forwarded traffic
+        cmd = exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-j", "DROP")
+        log.Println("Executing:", cmd.String())
+        if err := cmd.Run(); err != nil {
+            return err
+        }
+
+        log.Printf("Blocked internet access for client: %s\n", clientIP)
+    }
+    
     return nil
 }
 
-// removeRedirectRule removes the iptables redirection rules for a client
-func removeRedirectRule(clientIP string) error {
-    // Remove HTTP traffic redirection
-    cmd := exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "80", "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
-    log.Println("Executing:", cmd.String())
+// allowInternetAccess removes internet access restrictions for a client
+func allowInternetAccess(clientIP string) error {
+    // 1. Remove HTTP redirection
+    cmd := exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "80", "-j", "DNAT", 
+                       "--to-destination", captivePortalIP+":"+captivePortalPort)
+    cmd.Run() // Ignore errors as the rule might not exist
+
+    // 2. Remove HTTPS redirection
+    cmd = exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "443", "-j", "DNAT", 
+                      "--to-destination", captivePortalIP+":"+captivePortalPort)
+    cmd.Run() // Ignore errors as the rule might not exist
+
+    // 3. Remove DNS rules
+    cmd = exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-p", "udp", "--dport", "53", "-j", "ACCEPT")
+    cmd.Run() // Ignore errors as the rule might not exist
+    
+    cmd = exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-p", "tcp", "--dport", "53", "-j", "ACCEPT")
+    cmd.Run() // Ignore errors as the rule might not exist
+
+  
+    cmd = exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-p", "udp", "--dport", "67:68", "-j", "ACCEPT")
+    cmd.Run() // Ignore errors as the rule might not exist
+
+   
+    cmd = exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-d", captivePortalIP, "-j", "ACCEPT")
+    cmd.Run() // Ignore errors as the rule might not exist
+
+    // 6. Remove drop rule
+    cmd = exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-j", "DROP")
+    cmd.Run() // Ignore errors as the rule might not exist
+
+    log.Printf("Allowed internet access for client: %s\n", clientIP)
+    return nil
+}
+
+// blockRestrictedResources blocks access to specific resources for a client
+func blockRestrictedResources(clientIP string, restrictedResources []string) error {
+	// Step 1: Remove all existing rules for the client IP
+	
+
+	// Step 2: Block access to restricted resources
+	for _, resource := range restrictedResources {
+        
+		cmd := exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-d", resource, "-j", "DROP")
+		log.Println("Executing:", cmd.String())
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to block resource %s for client %s: %v", resource, clientIP, err)
+		}
+	}
+
+	// Step 3: Allow access to all other resources
+	allResources, err := getAllResources()
+	if err != nil {
+		return fmt.Errorf("failed to fetch all resources: %v", err)
+	}
+
+	for _, resource := range allResources {
+		// Skip if the resource is in the restricted list
+		if contains(restrictedResources, resource) {
+			continue
+		}
+
+		// Remove any existing DROP rule for this resource (if it exists)
+		cmd := exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-d", resource, "-j", "DROP")
+		log.Println("Executing:", cmd.String())
+		cmd.Run() // Ignore errors, as the rule might not exist
+
+		// Allow access to this resource
+		cmd = exec.Command("iptables", "-A", "FORWARD", "-s", clientIP, "-d", resource, "-j", "ACCEPT")
+		log.Println("Executing:", cmd.String())
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to allow access to resource %s for client %s: %v", resource, clientIP, err)
+		}
+	}
+
+	log.Printf("Updated restricted resources for client: %s\n", clientIP)
+	return nil
+}
+// contains checks if a string exists in a slice of strings
+func contains(slice []string, item string) bool {
+    for _, s := range slice {
+        if s == item {
+            return true
+        }
+    }
+    return false
+}
+func getAllResources() ([]string, error) {
+	// Make a GET request to the /api/allResources endpoint
+	resp, err := http.Get("http://localhost:8080/api/allResources")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch resources: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Decode the response into a slice of Resource structs
+	var resources []Resource
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, fmt.Errorf("failed to decode resources: %v", err)
+	}
+
+	// Extract the IP addresses from the resources
+	var ipAddresses []string
+	for _, resource := range resources {
+		ipAddresses = append(ipAddresses, resource.IPAddress)
+	}
+
+	return ipAddresses, nil
+}
+// unblockRestrictedResources removes restricted resource blocks for a client
+func unblockRestrictedResources(clientIP string, resources []string) error {
+    for _, resource := range resources {
+        
+        cmd := exec.Command("iptables", "-D", "FORWARD", "-s", clientIP, "-d", resource, "-j", "DROP")
+        cmd.Run() // Ignore errors as the rule might not exist
+    }
+    return nil
+}
+
+// Helper functions to check if rules exist
+func dropRuleExists(clientIP string) (bool, error) {
+    cmd := exec.Command("iptables", "-C", "FORWARD", "-s", clientIP, "-j", "DROP")
     if err := cmd.Run(); err != nil {
         if exitError, ok := err.(*exec.ExitError); ok {
             // Exit code 1 means the rule does not exist
             if exitError.ExitCode() == 1 {
-                log.Printf("HTTP rule for client %s does not exist\n", clientIP)
-                return nil
+                return false, nil
             }
         }
-        return err
+        return false, err
     }
-
-    // Remove HTTPS traffic redirection
-    cmd = exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "443", "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
-    log.Println("Executing:", cmd.String())
-    if err := cmd.Run(); err != nil {
-        if exitError, ok := err.(*exec.ExitError); ok {
-            // Exit code 1 means the rule does not exist
-            if exitError.ExitCode() == 1 {
-                log.Printf("HTTPS rule for client %s does not exist\n", clientIP)
-                return nil
-            }
-        }
-        return err
-    }
-
-    log.Printf("Removed redirect rules for client: %s\n", clientIP)
-    return nil
+    return true, nil
 }
 
-// addRestrictedResourceRules adds iptables rules to redirect traffic to restricted resources for a client
-func addRestrictedResourceRules(clientIP string, resources []string) error {
-    for _, resource := range resources {
-        // Redirect HTTP traffic (port 80)
-        cmd := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "80", "-d", resource, "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
-        log.Println("Executing:", cmd.String())
-        if err := cmd.Run(); err != nil {
-            return err
-        }
-
-        // Redirect HTTPS traffic (port 443)
-        cmd = exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "443", "-d", resource, "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
-        log.Println("Executing:", cmd.String())
-        if err := cmd.Run(); err != nil {
-            return err
-        }
-    }
-    return nil
-}
-
-// removeRestrictedResourceRules removes iptables rules for restricted resources for a client
-func removeRestrictedResourceRules(clientIP string, resources []string) error {
-    for _, resource := range resources {
-        // Remove HTTP traffic redirection
-        cmd := exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "80", "-d", resource, "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
-        log.Println("Executing:", cmd.String())
-        if err := cmd.Run(); err != nil {
-            return err
-        }
-
-        // Remove HTTPS traffic redirection
-        cmd = exec.Command("iptables", "-t", "nat", "-D", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", "443", "-d", resource, "-j", "DNAT", "--to-destination", "10.0.2.4:8080")
-        log.Println("Executing:", cmd.String())
-        if err := cmd.Run(); err != nil {
-            return err
-        }
-    }
-    return nil
-}
-func ruleExists(clientIP string, port string) (bool, error) {
-    cmd := exec.Command("iptables", "-t", "nat", "-C", "PREROUTING", "-s", clientIP, "-p", "tcp", "--dport", port, "-j", "DNAT", "--to-destination", "192.168.1.1:8080")
+func restrictedRuleExists(clientIP string, resource string) (bool, error) {
+    cmd := exec.Command("iptables", "-C", "FORWARD", "-s", clientIP, "-d", resource, "-j", "DROP")
     if err := cmd.Run(); err != nil {
         if exitError, ok := err.(*exec.ExitError); ok {
             // Exit code 1 means the rule does not exist

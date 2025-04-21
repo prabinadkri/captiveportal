@@ -88,6 +88,8 @@ func main() {
 	http.HandleFunc("/api/addResource", handleAddResource)
 	http.HandleFunc("/api/assignResource", handleAssignResource)
 	http.HandleFunc("/api/activeSessions", handleActiveSessions)
+	http.HandleFunc("/api/allRestrictedResources", handleAllRestrictedResources) 
+	http.HandleFunc("/api/allResources", handleGetAllResources) 
 	// Start HTTP server
 	fmt.Println("Starting captive portal server on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -172,7 +174,44 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+func handleGetAllResources(w http.ResponseWriter, r *http.Request) {
+	// Query the database to fetch all resources
+	rows, err := db.Query("SELECT id, name, ip_address FROM resources")
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		log.Println("Failed to fetch resources:", err)
+		return
+	}
+	defer rows.Close()
 
+	// Slice to hold the resources
+	var resources []Resource
+
+	// Iterate over the rows and populate the resources slice
+	for rows.Next() {
+		var resource Resource
+		if err := rows.Scan(&resource.ID, &resource.Name, &resource.IPAddress); err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			log.Println("Failed to scan resource:", err)
+			return
+		}
+		resources = append(resources, resource)
+	}
+
+	// Check for errors after iteration
+	if err := rows.Err(); err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		log.Println("Error after iterating rows:", err)
+		return
+	}
+
+	// Return the resources as JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resources); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		log.Println("Failed to encode resources:", err)
+	}
+}
 // handleLogout handles logout requests
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -189,6 +228,49 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	response := map[string]string{"status": "success"}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleAllRestrictedResources returns restricted resources for all connected IPs
+func handleAllRestrictedResources(w http.ResponseWriter, r *http.Request) {
+    mutex.RLock()
+    defer mutex.RUnlock()
+
+    // Map to store IP -> restricted resources
+    result := make(map[string][]Resource)
+
+    // Iterate over all active sessions
+    for ip, session := range activeSessions {
+        // Fetch restricted resources for the user's role
+        var resources []Resource
+        rows, err := db.Query(`
+            SELECT r.id, r.name, r.ip_address 
+            FROM resources r
+            JOIN role_resources rr ON r.name = rr.resource
+            JOIN roles ON rr.role = roles.name
+            WHERE roles.name = $1
+        `, session.Role)
+        if err != nil {
+            http.Error(w, "Database error", http.StatusInternalServerError)
+            return
+        }
+        defer rows.Close()
+
+        for rows.Next() {
+            var resource Resource
+            if err := rows.Scan(&resource.ID, &resource.Name, &resource.IPAddress); err != nil {
+                http.Error(w, "Database error", http.StatusInternalServerError)
+                return
+            }
+            resources = append(resources, resource)
+        }
+
+        // Add to the result map
+        result[ip] = resources
+    }
+
+    // Return the result
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(result)
 }
 
 // handleAccessCheck checks if a user has access to a resource

@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const resourcesList = document.getElementById("resourcesList");
     const usernameSpan = document.getElementById("username");
     const userRoleSpan = document.getElementById("userRole");
-
+    
     // Check if we're on the login page or dashboard
     if (loginForm) {
         loginForm.addEventListener("submit", async function (e) {

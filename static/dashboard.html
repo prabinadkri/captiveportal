@@ -135,6 +135,105 @@
             background-color: #333;
             color: white;
         }
+        /* Admin Section Container */
+.admin-section {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 25px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.admin-section h2 {
+    color: #2c3e50;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 10px;
+    margin-bottom: 25px;
+}
+
+/* Form Containers */
+.admin-section > div {
+    background-color: white;
+    padding: 20px;
+    margin-bottom: 25px;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.admin-section h3 {
+    color: #3498db;
+    margin-top: 0;
+    margin-bottom: 15px;
+}
+
+/* Form Elements */
+.admin-section form {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 15px;
+    align-items: center;
+}
+
+.admin-section label {
+    font-weight: 600;
+    color: #34495e;
+    text-align: right;
+    padding-right: 10px;
+}
+
+.admin-section input[type="text"],
+.admin-section input[type="password"],
+.admin-section select {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.3s;
+}
+
+.admin-section input[type="text"]:focus,
+.admin-section input[type="password"]:focus,
+.admin-section select:focus {
+    border-color: #3498db;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+/* Buttons */
+.admin-section button {
+    grid-column: 2;
+    padding: 10px 15px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background-color 0.3s;
+}
+
+.admin-section button:hover {
+    background-color: #2980b9;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .admin-section form {
+        grid-template-columns: 1fr;
+    }
+    
+    .admin-section label {
+        text-align: left;
+        padding-right: 0;
+    }
+    
+    .admin-section button {
+        grid-column: 1;
+    }
+}
     </style>
 </head>
 <body>
@@ -278,7 +377,7 @@
                     .join('');
                 resourceList.innerHTML = `<ul>${resourceItems}</ul>`;
             } else {
-                resourceList.innerHTML = '<p>No resources available for your role.</p>';
+                resourceList.innerHTML = '<p>No resources restricted for your role.</p>';
             }
             if (data.role === 'admin') {
     console.log("is admin")
@@ -407,7 +506,7 @@ document.getElementById('assignResourceForm').addEventListener('submit', async f
         });
 
         if (response.ok) {
-            alert('Resource assigned successfully');
+            alert('Resource Restricted successfully');
         } else {
             alert('Failed to assign resource');
         }
